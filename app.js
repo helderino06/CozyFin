@@ -23,12 +23,19 @@ function seed(){
  return {transactions:[], budgets:[], recurring:[], categories:defaultCats.map(x=>({name:x[0],icon:x[1],subs:x[2]})),
  accounts:["Cuenta bancaria","Efectivo","Tarjeta"], currency:"EUR"};
 }
-function load(){try{return JSON.parse(localStorage.getItem(KEY))||seed()}catch{return seed()}}
+function load(){try{let x=JSON.parse(localStorage.getItem(KEY));if(!x)x=seed();x.goals ||= [];x.cards ||= [];x.accountBalances ||= {};x.recurring ||= [];x.budgets ||= [];x.transactions ||= [];x.categories ||= defaultCats.map(x=>({name:x[0],icon:x[1],subs:x[2]}));x.accounts ||= ["Cuenta bancaria","Efectivo","Tarjeta"];x.dark ||= false;return x}catch{return seed()}}
 function save(){localStorage.setItem(KEY,JSON.stringify(state))}
 function money(n){return new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR"}).format(n||0)}
 function iso(d){return new Date(d).toISOString().slice(0,10)}
 function parseDate(s){return new Date(s+"T12:00:00")}
 function monthKey(d){let x=new Date(d);return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}`}
+function today(){let d=new Date();return iso(d)}
+function dayLabel(){return new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"})}
+function startOfWeek(d){let x=new Date(d);let day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);x.setHours(12,0,0,0);return x}
+function weekTransactions(d=new Date()){let s=startOfWeek(d),e=new Date(s);e.setDate(e.getDate()+7);return state.transactions.filter(t=>{let x=parseDate(t.date);return x>=s&&x<e})}
+function upcoming(days=30){let now=parseDate(today()),end=new Date(now);end.setDate(end.getDate()+days);return state.recurring.filter(r=>r.active!==false&&parseDate(r.nextDate)>=now&&parseDate(r.nextDate)<=end)}
+function accountBalance(name){let opening=Number(state.accountBalances?.[name]||0);return opening+state.transactions.filter(t=>t.account===name).reduce((a,t)=>a+(t.type==="income"?Number(t.amount):-Number(t.amount)),0)}
+
 function currentMonth(){return monthKey(cursor)}
 function formatDate(s){return parseDate(s).toLocaleDateString("es-ES",{day:"2-digit",month:"short"})}
 function toast(t){let e=$("#toast");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),1800)}
@@ -38,15 +45,118 @@ function expenseSum(ts){return ts.filter(t=>t.type==="expense").reduce((a,t)=>a+
 function incomeSum(ts){return ts.filter(t=>t.type==="income").reduce((a,t)=>a+Number(t.amount),0)}
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 
+
+function normalizeMerchant(s=''){
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9]+/g,' ').trim();
+}
+function txHash(t){
+  return [t.date, Number(t.amount).toFixed(2), normalizeMerchant(t.title), t.account||''].join('|');
+}
+function guessType(amount){
+  return Number(amount) >= 0 ? 'income' : 'expense';
+}
+function applyImportRule(title, rules=state.importRules){
+  const n=normalizeMerchant(title);
+  const r=rules.find(x=>n.includes(normalizeMerchant(x.keyword)));
+  return r ? {category:r.category||'',subcategory:r.subcategory||''} : {};
+}
+function parseCSV(text){
+  const lines=text.replace(/\r/g,'').split('\n').filter(x=>x.trim());
+  if(!lines.length) return [];
+  const sep = (lines[0].match(/;/g)||[]).length > (lines[0].match(/,/g)||[]).length ? ';' : ',';
+  const parseLine=(line)=>{
+    const out=[]; let cur='', q=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c==='"' && line[i+1]==='"'){cur+='"';i++;continue}
+      if(c==='"'){q=!q;continue}
+      if(c===sep && !q){out.push(cur.trim());cur='';continue}
+      cur+=c;
+    }
+    out.push(cur.trim()); return out;
+  };
+  const headers=parseLine(lines[0]).map(x=>normalizeMerchant(x));
+  const idx=(names)=>{for(const n of names){const i=headers.findIndex(h=>h===n||h.includes(n));if(i>=0)return i}return -1};
+  const dateI=idx(['fecha','date','valor','value date']);
+  const descI=idx(['concepto','descripcion','description','merchant','comercio','detalle','memo']);
+  const amtI=idx(['importe','amount','monto','cantidad']);
+  const debitI=idx(['debe','debit','cargo']);
+  const creditI=idx(['haber','credit','abono']);
+  const accountI=idx(['cuenta','account']);
+  if(dateI<0 || descI<0 || (amtI<0 && debitI<0 && creditI<0)) return [];
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const p=parseLine(lines[i]); if(p.length<2) continue;
+    let raw = amtI>=0?p[amtI]:'';
+    let amount=Number(String(raw).replace(/\s/g,'').replace(/\.(?=\d{3}(?:\\D|$))/g,'').replace(',','.'));
+    if(!Number.isFinite(amount)){
+      const d=debitI>=0?Number(String(p[debitI]).replace('.','').replace(',','.')):0;
+      const c=creditI>=0?Number(String(p[creditI]).replace('.','').replace(',','.')):0;
+      amount=(c||0)-(d||0);
+    }
+    if(!Number.isFinite(amount)) continue;
+    let date=String(p[dateI]||'').trim();
+    if(/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(date)){
+      const [d,m,y]=date.split(/[\/-]/); date=`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const title=String(p[descI]||'Movimiento importado').trim();
+    const rule=applyImportRule(title);
+    rows.push({type:guessType(amount),title,amount:Math.abs(amount),date,
+      category:rule.category||'Otros',subcategory:rule.subcategory||'',
+      account:accountI>=0?p[accountI]||'Cuenta bancaria':'Cuenta bancaria',
+      notes:'Importado', _signed:amount});
+  }
+  return rows;
+}
+function importTransactions(rows){
+  let added=0, skipped=0;
+  for(const r of rows){
+    const t={...r}; delete t._signed;
+    if(r._signed<0)t.type='expense'; else t.type='income';
+    const h=txHash(t);
+    if(state.importedHashes.includes(h) || state.transactions.some(x=>txHash(x)===h)){skipped++;continue}
+    state.transactions.push({id:crypto.randomUUID(),...t});
+    state.importedHashes.push(h); added++;
+  }
+  save(); render();
+  alert(`Importación completada: ${added} nuevos, ${skipped} duplicados.`);
+}
+function exportCSVTemplate(){
+  const csv='fecha,descripcion,importe,cuenta\\n2026-09-23,Supermercado,42.50,Cuenta bancaria\\n';
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cozyfin-importacion.csv'; a.click();
+}
+function addRule(){
+  const keyword=prompt('Palabra del comercio (ej. mercadona):'); if(!keyword)return;
+  const category=prompt('Categoría (ej. Alimentación):','Alimentación')||'Otros';
+  const subcategory=prompt('Subcategoría (opcional):','')||'';
+  state.importRules.push({id:crypto.randomUUID(),keyword,category,subcategory}); save(); render();
+}
+function removeRule(i){state.importRules.splice(i,1);save();render();}
+function openImport(){
+  const input=document.createElement('input'); input.type='file'; input.accept='.csv,text/csv';
+  input.onchange=async()=>{const f=input.files?.[0];if(!f)return;try{importTransactions(parseCSV(await f.text()))}catch(e){alert('No se pudo leer el CSV. Usa la plantilla de CozyFin.')}};
+  input.click();
+}
+
 function render(){
  $("#monthLabel").textContent=`${monthNames[cursor.getMonth()]} ${cursor.getFullYear()}`;
- const ts=transactionsForMonth(), inc=incomeSum(ts), exp=expenseSum(ts);
- $("#monthBalance").textContent=money(inc-exp); $("#monthIncome").textContent=`↑ ${money(inc)}`; $("#monthExpense").textContent=`↓ ${money(exp)}`;
+ const ts=transactionsForMonth(), inc=incomeSum(ts), exp=expenseSum(ts), bal=inc-exp;
+ $("#monthBalance").textContent=money(bal); $("#monthIncome").textContent=`↑ ${money(inc)}`; $("#monthExpense").textContent=`↓ ${money(exp)}`;
  const budgets=state.budgets.reduce((a,b)=>a+Number(b.limit),0);
  $("#budgetTotal").textContent=money(budgets);$("#spentTotal").textContent=money(exp);
- const planned=state.recurring.filter(r=>r.active!==false).reduce((a,r)=>a+Number(r.amount),0);
- $("#plannedTotal").textContent=money(planned);$("#savingRate").textContent=inc?`${Math.round((inc-exp)/inc*100)}%`:"0%";
- drawTrend(ts); drawDonut(ts); renderRecent(); renderTransactions(); renderBudgets(); renderPlanning();
+ const planned=upcoming(30).reduce((a,r)=>a+Number(r.amount),0);
+ $("#plannedTotal").textContent=money(planned);
+ $("#savingRate").textContent=inc?`${Math.round(bal/inc*100)}%`:"0%";
+ $("#todayLabel").textContent=dayLabel();
+ const wt=weekTransactions(),wi=incomeSum(wt),we=expenseSum(wt);
+ $("#weekSummary").textContent=`Semana: ${money(wi)} ingresos · ${money(we)} gastos`;
+ const projected=bal-planned;
+ $("#projectedBalance").textContent=money(projected);
+ $("#todayList").innerHTML=transactionsForMonth().filter(t=>t.date===today()).sort((a,b)=>b.id.localeCompare(a.id)).map(movementHTML).join("")||`<div class="empty">Hoy todavía no hay movimientos.</div>`;
+ drawTrend(ts); drawDonut(ts); renderRecent(); renderTransactions(); renderBudgets(); renderPlanning(); renderGoals(); renderAccounts(); renderCards();
 }
 function drawTrend(ts){
  const c=$("#trendChart"),ctx=c.getContext("2d"),dpr=devicePixelRatio||1,w=c.clientWidth,h=210;c.width=w*dpr;c.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
@@ -80,48 +190,55 @@ function renderBudgets(){
  $("#budgetList").innerHTML=state.budgets.length?state.budgets.map((b,i)=>{let spent=expenseSum(ts.filter(t=>t.category===b.category)),pct=Math.min(100,spent/b.limit*100),over=spent>b.limit;return `<div class="budget-card"><div class="budget-head"><div class="emoji">${catInfo(b.category).icon}</div><div><b>${esc(b.category)}</b><small>${money(spent)} de ${money(b.limit)}</small></div><strong>${Math.round(spent/b.limit*100)}%</strong></div><div class="progress"><i class="${over?"over":""}" style="width:${pct}%"></i></div><div class="budget-foot"><span>${over?`Te has pasado ${money(spent-b.limit)}`:`Te quedan ${money(b.limit-spent)}`}</span><button class="text-btn" data-budget="${i}">Editar</button></div></div>`}).join(""):`<div class="empty">Crea límites por categoría para controlar tus gastos.</div>`;
 }
 function renderPlanning(){
- let arr=planTab==="recurring"?state.recurring:[...state.recurring].filter(r=>r.active!==false).sort((a,b)=>a.nextDate.localeCompare(b.nextDate));
- $("#planningList").innerHTML=arr.length?arr.map((r,i)=>`<div class="plan-card"><div class="plan-date"><b>${parseDate(r.nextDate).getDate()}</b><small>${parseDate(r.nextDate).toLocaleDateString("es-ES",{month:"short"})}</small></div><div class="plan-main"><b>${esc(r.title)}</b><small>${esc(r.category)} · ${r.frequency==="monthly"?"Mensual":r.frequency==="weekly"?"Semanal":"Anual"} · ${money(r.amount)}</small></div><button class="text-btn" data-plan="${state.recurring.indexOf(r)}">Editar</button></div>`).join(""):`<div class="empty">Programa nóminas, alquileres, suscripciones, seguros y otros pagos futuros.</div>`;
+ let arr=planTab==="recurring"?state.recurring:[...upcoming(90)].sort((a,b)=>a.nextDate.localeCompare(b.nextDate));
+ const total=arr.reduce((a,r)=>a+Number(r.amount),0);
+ $("#planningList").innerHTML=`<div class="forecast-card"><div><small>Próximos 90 días</small><b>${money(total)}</b></div><span>Previsto</span></div>`+
+ (arr.length?arr.map(r=>`<div class="plan-card"><div class="plan-date"><b>${parseDate(r.nextDate).getDate()}</b><small>${parseDate(r.nextDate).toLocaleDateString("es-ES",{month:"short"})}</small></div><div class="plan-main"><b>${esc(r.title)}</b><small>${esc(r.category)} · ${r.frequency==="monthly"?"Mensual":r.frequency==="weekly"?"Semanal":"Anual"} · ${money(r.amount)}</small></div><button class="text-btn" data-payplan="${state.recurring.indexOf(r)}">✓</button><button class="text-btn" data-plan="${state.recurring.indexOf(r)}">Editar</button></div>`).join(""):`<div class="empty">No hay movimientos programados.</div>`);
+}
+function renderGoals(){
+ const box=$("#goalsList"); if(!box)return;
+ box.innerHTML=state.goals.length?state.goals.map((g,i)=>{let pct=Math.min(100,Number(g.saved)/Number(g.target)*100);return `<div class="budget-card"><div class="budget-head"><div class="emoji">🎯</div><div><b>${esc(g.name)}</b><small>${money(g.saved)} de ${money(g.target)}</small></div><strong>${Math.round(pct)}%</strong></div><div class="progress"><i style="width:${pct}%"></i></div><div class="budget-foot"><span>Faltan ${money(Math.max(0,g.target-g.saved))}</span><button class="text-btn" data-goal="${i}">Editar</button></div></div>`}).join(""):`<div class="empty">Crea un objetivo para reservar dinero para algo concreto.</div>`;
+}
+function renderAccounts(){
+ const box=$("#accountList"); if(!box)return;
+ box.innerHTML=state.accounts.map((a,i)=>`<div class="account-card"><div class="account-icon">${i===0?"🏦":i===1?"💵":"💳"}</div><div><b>${esc(a)}</b><small>Saldo calculado</small></div><strong>${money(accountBalance(a))}</strong><button class="text-btn" data-account-edit="${i}">Editar</button></div>`).join("");
+}
+function renderCards(){
+ const box=$("#cardList"); if(!box)return;
+ box.innerHTML=state.cards.length?state.cards.map((c,i)=>`<div class="account-card"><div class="account-icon">💳</div><div><b>${esc(c.name)}</b><small>Cierre día ${c.closeDay} · pago día ${c.payDay}</small></div><button class="text-btn" data-card="${i}">Editar</button></div>`).join(""):`<div class="empty">Añade tus tarjetas para recordar cierre y pago.</div>`;
 }
 
-function openModal(html){$("#modal").innerHTML=html;$("#modalBackdrop").classList.add("open")}
-function closeModal(){$("#modalBackdrop").classList.remove("open")}
-function addMovement(existing=null){
- const t=existing||{type:"expense",amount:"",title:"",date:iso(new Date()),category:state.categories[0].name,subcategory:"",account:state.accounts[0],notes:""};
- openModal(`<div class="modal-top"><h3>${existing?"Editar movimiento":"Nuevo movimiento"}</h3><button class="close" id="closeModal">×</button></div>
- <div class="form-grid">
- <div class="choice-row"><button class="choice ${t.type==="expense"?"active":""}" data-t="expense">Gasto</button><button class="choice ${t.type==="income"?"active":""}" data-t="income">Ingreso</button></div>
- <div class="field"><label>Concepto</label><input id="fTitle" value="${esc(t.title)}" placeholder="Ej. Nómina, supermercado..."></div>
- <div class="form-row"><div class="field"><label>Importe (€)</label><input id="fAmount" type="number" step="0.01" value="${t.amount}"></div><div class="field"><label>Fecha</label><input id="fDate" type="date" value="${t.date}"></div></div>
- <div class="form-row"><div class="field"><label>Categoría</label><select id="fCat">${state.categories.map(c=>`<option ${c.name===t.category?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div><div class="field"><label>Subcategoría</label><select id="fSub"></select></div></div>
- <div class="field"><label>Cuenta</label><select id="fAccount">${state.accounts.map(a=>`<option ${a===t.account?"selected":""}>${esc(a)}</option>`).join("")}</select></div>
- <div class="field"><label>Notas</label><textarea id="fNotes">${esc(t.notes||"")}</textarea></div>
- <button class="primary" id="saveMovement">Guardar movimiento</button>${existing?`<button class="danger" id="deleteMovement">Eliminar movimiento</button>`:""}
- </div>`);
- let typ=t.type; $$(".choice").forEach(b=>b.onclick=()=>{$$(".choice").forEach(x=>x.classList.remove("active"));b.classList.add("active");typ=b.dataset.t});
- function subs(){let c=state.categories.find(x=>x.name===$("#fCat").value);$("#fSub").innerHTML=`<option value="">Sin subcategoría</option>`+(c?.subs||[]).map(s=>`<option ${s===t.subcategory?"selected":""}>${esc(s)}</option>`).join("")}
- subs();$("#fCat").onchange=subs;$("#closeModal").onclick=closeModal;
- $("#saveMovement").onclick=()=>{let amount=Number($("#fAmount").value);if(!$("#fTitle").value.trim()||!amount||amount<0){toast("Completa concepto e importe");return}
- const obj={id:t.id||crypto.randomUUID(),type:typ,title:$("#fTitle").value.trim(),amount,date:$("#fDate").value,category:$("#fCat").value,subcategory:$("#fSub").value,account:$("#fAccount").value,notes:$("#fNotes").value};
- if(existing)state.transactions=state.transactions.map(x=>x.id===existing.id?obj:x);else state.transactions.push(obj);save();closeModal();render();toast("Movimiento guardado")};
- if(existing)$("#deleteMovement").onclick=()=>{state.transactions=state.transactions.filter(x=>x.id!==existing.id);save();closeModal();render();toast("Movimiento eliminado")};
+function goalModal(existing=null,index=-1){
+ const g=existing||{name:"",target:"",saved:""};
+ openModal(`<div class="modal-top"><h3>${existing?"Editar objetivo":"Nuevo objetivo"}</h3><button class="close">×</button></div><div class="form-grid">
+ <div class="field"><label>Objetivo</label><input id="gName" value="${esc(g.name)}" placeholder="Ej. Viaje, fondo de emergencia..."></div>
+ <div class="form-row"><div class="field"><label>Objetivo (€)</label><input id="gTarget" type="number" step="0.01" value="${g.target}"></div><div class="field"><label>Ahorrado (€)</label><input id="gSaved" type="number" step="0.01" value="${g.saved}"></div></div>
+ <button class="primary" id="saveGoal">Guardar</button>${existing?`<button class="danger" id="deleteGoal">Eliminar</button>`:""}</div>`);
+ $(".close").onclick=closeModal;$("#saveGoal").onclick=()=>{let obj={name:$("#gName").value.trim(),target:Number($("#gTarget").value),saved:Number($("#gSaved").value)};if(!obj.name||!obj.target){toast("Completa el objetivo");return}if(index>=0)state.goals[index]=obj;else state.goals.push(obj);save();closeModal();render();toast("Objetivo guardado")};if(existing)$("#deleteGoal").onclick=()=>{state.goals.splice(index,1);save();closeModal();render()};
 }
-function budgetModal(existing=null,index=-1){
- const b=existing||{category:state.categories[0].name,limit:""};
- openModal(`<div class="modal-top"><h3>${existing?"Editar presupuesto":"Nuevo presupuesto"}</h3><button class="close">×</button></div><div class="form-grid">
- <div class="field"><label>Categoría</label><select id="bCat">${state.categories.map(c=>`<option ${c.name===b.category?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div>
- <div class="field"><label>Límite mensual (€)</label><input id="bLimit" type="number" step="0.01" value="${b.limit}"></div>
- <button class="primary" id="saveBudget">Guardar límite</button>${existing?`<button class="danger" id="deleteBudget">Eliminar</button>`:""}</div>`);
- $(".close").onclick=closeModal;$("#saveBudget").onclick=()=>{let limit=Number($("#bLimit").value);if(!limit){toast("Introduce un límite");return}let obj={category:$("#bCat").value,limit};if(index>=0)state.budgets[index]=obj;else state.budgets.push(obj);save();closeModal();render();toast("Presupuesto guardado")};if(existing)$("#deleteBudget").onclick=()=>{state.budgets.splice(index,1);save();closeModal();render()};
+function cardModal(existing=null,index=-1){
+ const c=existing||{name:"",closeDay:1,payDay:1};
+ openModal(`<div class="modal-top"><h3>${existing?"Editar tarjeta":"Nueva tarjeta"}</h3><button class="close">×</button></div><div class="form-grid">
+ <div class="field"><label>Nombre</label><input id="cardName" value="${esc(c.name)}" placeholder="Ej. Visa principal"></div>
+ <div class="form-row"><div class="field"><label>Día de cierre</label><input id="closeDay" type="number" min="1" max="31" value="${c.closeDay}"></div><div class="field"><label>Día de pago</label><input id="payDay" type="number" min="1" max="31" value="${c.payDay}"></div></div>
+ <button class="primary" id="saveCard">Guardar</button>${existing?`<button class="danger" id="deleteCard">Eliminar</button>`:""}</div>`);
+ $(".close").onclick=closeModal;$("#saveCard").onclick=()=>{let obj={name:$("#cardName").value.trim(),closeDay:+$("#closeDay").value,payDay:+$("#payDay").value};if(!obj.name){toast("Pon un nombre");return}if(index>=0)state.cards[index]=obj;else state.cards.push(obj);save();closeModal();render();toast("Tarjeta guardada")};if(existing)$("#deleteCard").onclick=()=>{state.cards.splice(index,1);save();closeModal();render()};
 }
-function recurringModal(existing=null,index=-1){
- const r=existing||{title:"",amount:"",category:state.categories[0].name,nextDate:iso(new Date()),frequency:"monthly",active:true};
- openModal(`<div class="modal-top"><h3>${existing?"Editar planificación":"Programar movimiento"}</h3><button class="close">×</button></div><div class="form-grid">
- <div class="field"><label>Concepto</label><input id="rTitle" value="${esc(r.title)}" placeholder="Ej. Nómina"></div>
- <div class="form-row"><div class="field"><label>Importe (€)</label><input id="rAmount" type="number" step="0.01" value="${r.amount}"></div><div class="field"><label>Próxima fecha</label><input id="rDate" type="date" value="${r.nextDate}"></div></div>
- <div class="form-row"><div class="field"><label>Categoría</label><select id="rCat">${state.categories.map(c=>`<option ${c.name===r.category?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div><div class="field"><label>Frecuencia</label><select id="rFreq"><option value="monthly" ${r.frequency==="monthly"?"selected":""}>Mensual</option><option value="weekly" ${r.frequency==="weekly"?"selected":""}>Semanal</option><option value="yearly" ${r.frequency==="yearly"?"selected":""}>Anual</option></select></div></div>
- <button class="primary" id="saveRecurring">Guardar</button>${existing?`<button class="danger" id="deleteRecurring">Eliminar</button>`:""}</div>`);
- $(".close").onclick=closeModal;$("#saveRecurring").onclick=()=>{let obj={id:r.id||crypto.randomUUID(),title:$("#rTitle").value.trim(),amount:Number($("#rAmount").value),category:$("#rCat").value,nextDate:$("#rDate").value,frequency:$("#rFreq").value,active:true};if(!obj.title||!obj.amount){toast("Completa los datos");return}if(index>=0)state.recurring[index]=obj;else state.recurring.push(obj);save();closeModal();render();toast("Planificación guardada")};if(existing)$("#deleteRecurring").onclick=()=>{state.recurring.splice(index,1);save();closeModal();render()};
+function dailyReport(){
+ let wt=weekTransactions(),d=today(),td=state.transactions.filter(t=>t.date===d);
+ openModal(`<div class="modal-top"><h3>Resumen de hoy</h3><button class="close">×</button></div>
+ <div class="stats-grid"><div class="stat-card"><span>Ingresos</span><strong class="income">${money(incomeSum(td))}</strong></div><div class="stat-card"><span>Gastos</span><strong class="expense">${money(expenseSum(td))}</strong></div></div>
+ <div class="section-head"><h2>Esta semana</h2><span>${formatDate(startOfWeek(new Date()).toISOString().slice(0,10))}</span></div>
+ <div class="stats-grid"><div class="stat-card"><span>Ingresos</span><strong>${money(incomeSum(wt))}</strong></div><div class="stat-card"><span>Gastos</span><strong>${money(expenseSum(wt))}</strong></div></div>
+ <button class="primary" id="dailyAdd">＋ Añadir movimiento de hoy</button>`);
+ $(".close").onclick=closeModal;$("#dailyAdd").onclick=()=>{closeModal();addMovement({type:"expense",amount:"",title:"",date:today(),category:state.categories[0].name,subcategory:"",account:state.accounts[0],notes:""})};
+}
+function payRecurring(index){
+ const r=state.recurring[index];if(!r)return;
+ state.transactions.push({id:crypto.randomUUID(),type:r.type||"expense",title:r.title,amount:Number(r.amount),date:r.nextDate,category:r.category,subcategory:"",account:state.accounts[0],notes:"Generado desde planning"});
+ let d=parseDate(r.nextDate);
+ if(r.frequency==="weekly")d.setDate(d.getDate()+7);else if(r.frequency==="yearly")d.setFullYear(d.getFullYear()+1);else d.setMonth(d.getMonth()+1);
+ r.nextDate=iso(d);save();render();toast("Movimiento añadido y próximo pago actualizado");
 }
 function categoriesModal(){
  openModal(`<div class="modal-top"><h3>Categorías</h3><button class="close">×</button></div><div id="cats"></div><button class="primary" id="newCat">＋ Crear categoría</button>`);
@@ -151,12 +268,12 @@ $("#prevMonth").onclick=()=>{cursor.setMonth(cursor.getMonth()-1);render()};
 $("#nextMonth").onclick=()=>{cursor.setMonth(cursor.getMonth()+1);render()};
 $("#typeSegment").onclick=e=>{if(e.target.dataset.type){selectedType=e.target.dataset.type;$$("#typeSegment button").forEach(x=>x.classList.toggle("active",x.dataset.type===selectedType));renderTransactions()}};
 $("#addBudget").onclick=()=>budgetModal();$("#addRecurring").onclick=()=>recurringModal();
-$("#manageCats").onclick=categoriesModal;$("#manageAccounts").onclick=accountsModal;$("#exportData").onclick=exportData;
+$("#darkToggle").onclick=()=>{state.dark=!state.dark;document.body.classList.toggle("dark",state.dark);save()};$("#manageCats").onclick=categoriesModal;$("#manageAccounts").onclick=accountsModal;$("#addGoal").onclick=()=>goalModal();$("#addCard").onclick=()=>cardModal();$("#dailyBtn").onclick=dailyReport;$("#exportData").onclick=exportData;
 $$(".planning-tabs button").forEach(b=>b.onclick=()=>{planTab=b.dataset.plan;$$(".planning-tabs button").forEach(x=>x.classList.toggle("active",x===b));renderPlanning()});
 document.addEventListener("click",e=>{let m=e.target.closest(".movement");if(m){let t=state.transactions.find(x=>x.id===m.dataset.id);if(t)addMovement(t)}
  let b=e.target.closest("[data-budget]");if(b){let i=+b.dataset.budget;budgetModal(state.budgets[i],i)}
- let p=e.target.closest("[data-plan]");if(p){let i=+p.dataset.plan;recurringModal(state.recurring[i],i)}
+ let p=e.target.closest("[data-plan]");if(p){let i=+p.dataset.plan;recurringModal(state.recurring[i],i)} let pp=e.target.closest("[data-payplan]");if(pp)payRecurring(+pp.dataset.payplan); let g=e.target.closest("[data-goal]");if(g)goalModal(state.goals[+g.dataset.goal],+g.dataset.goal); let c=e.target.closest("[data-card]");if(c)cardModal(state.cards[+c.dataset.card],+c.dataset.card);
 });
 $("#modalBackdrop").onclick=e=>{if(e.target===$("#modalBackdrop"))closeModal()};
-render();
+document.body.classList.toggle("dark",!!state.dark);render();
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});

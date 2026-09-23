@@ -39,7 +39,7 @@
         </div>
       </div>
 
-      <div class="stats-grid">
+      <div class="daily-card"><div><small id="todayLabel">Hoy</small><b id="weekSummary">Esta semana</b></div><button class="pill-btn" id="dailyBtn">Ver día</button></div><div class="stats-grid">
         <div class="stat-card"><span>Presupuestado</span><strong id="budgetTotal">0,00 €</strong></div>
         <div class="stat-card"><span>Gastado</span><strong id="spentTotal">0,00 €</strong></div>
         <div class="stat-card"><span>Previsto</span><strong id="plannedTotal">0,00 €</strong></div>
@@ -47,7 +47,7 @@
       </div>
 
       <div class="section-head"><h2>Evolución</h2><span id="chartCaption">Este mes</span></div>
-      <div class="chart-card"><canvas id="trendChart"></canvas></div>
+      <div class="chart-card"><canvas id="trendChart"></canvas></div><div class="chart-card mini-forecast"><div><small>Saldo estimado al final del mes</small><b id="projectedBalance">0,00 €</b></div><span>Incluye planning</span></div>
 
       <div class="section-head"><h2>Por categorías</h2><span id="categoryTotal">0,00 €</span></div>
       <div class="chart-card donut-wrap">
@@ -82,9 +82,11 @@
 
     <section class="view" id="view-more">
       <div class="page-title"><h2>Más</h2></div>
+      <div class="more-section"><div class="section-head"><h2>Objetivos de ahorro</h2><button class="pill-btn" id="addGoal">＋ Añadir</button></div><div id="goalsList"></div></div>
+      <div class="more-section"><div class="section-head"><h2>Cuentas</h2><button class="pill-btn" id="manageAccounts">Gestionar</button></div><div id="accountList"></div></div><div class="more-section"><div class="section-head"><h2>Tarjetas</h2><button class="pill-btn" id="addCard">＋ Añadir</button></div><div id="cardList"></div></div>
       <div class="settings-card">
-        <button class="settings-row" id="manageCats"><span>🏷️</span><div><b>Categorías</b><small>Gestiona categorías y subcategorías</small></div><span>›</span></button>
-        <button class="settings-row" id="manageAccounts"><span>💳</span><div><b>Cuentas</b><small>Banco, efectivo, tarjeta...</small></div><span>›</span></button>
+        <button class="settings-row" id="darkToggle"><span>🌙</span><div><b>Modo oscuro</b><small>Alterna el aspecto nocturno</small></div><span>›</span></button><button class="settings-row" id="manageCats"><span>🏷️</span><div><b>Categorías</b><small>Gestiona categorías y subcategorías</small></div><span>›</span></button>
+        
         <button class="settings-row" id="exportData"><span>📤</span><div><b>Exportar datos</b><small>Copia de seguridad en JSON</small></div><span>›</span></button>
         <label class="settings-row"><span>📥</span><div><b>Importar datos</b><small>Restaurar una copia</small></div><span>›</span><input type="file" id="importData" accept=".json" hidden></label>
       </div>
