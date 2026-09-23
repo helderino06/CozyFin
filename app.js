@@ -46,6 +46,7 @@ function incomeSum(ts){return ts.filter(t=>t.type==="income").reduce((a,t)=>a+Nu
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 
 
+function uid(){return (crypto&&crypto.randomUUID)?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function normalizeMerchant(s=''){
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^a-z0-9]+/g,' ').trim();
@@ -117,7 +118,7 @@ function importTransactions(rows){
     if(r._signed<0)t.type='expense'; else t.type='income';
     const h=txHash(t);
     if(state.importedHashes.includes(h) || state.transactions.some(x=>txHash(x)===h)){skipped++;continue}
-    state.transactions.push({id:crypto.randomUUID(),...t});
+    state.transactions.push({id:uid(),...t});
     state.importedHashes.push(h); added++;
   }
   save(); render();
@@ -132,7 +133,7 @@ function addRule(){
   const keyword=prompt('Palabra del comercio (ej. mercadona):'); if(!keyword)return;
   const category=prompt('Categoría (ej. Alimentación):','Alimentación')||'Otros';
   const subcategory=prompt('Subcategoría (opcional):','')||'';
-  state.importRules.push({id:crypto.randomUUID(),keyword,category,subcategory}); save(); render();
+  state.importRules.push({id:uid(),keyword,category,subcategory}); save(); render();
 }
 function removeRule(i){state.importRules.splice(i,1);save();render();}
 function openImport(){
@@ -141,7 +142,8 @@ function openImport(){
   input.click();
 }
 
-function render(){
+function normalizeState(){ state.importRules ||= []; state.importedHashes ||= []; state.categories ||= []; state.transactions ||= []; state.budgets ||= []; state.recurring ||= []; state.goals ||= []; state.cards ||= []; state.accounts ||= ['Cuenta bancaria','Efectivo','Tarjeta']; state.accountBalances ||= {}; state.currency ||= 'EUR'; }
+function render(){ normalizeState();
  $("#monthLabel").textContent=`${monthNames[cursor.getMonth()]} ${cursor.getFullYear()}`;
  const ts=transactionsForMonth(), inc=incomeSum(ts), exp=expenseSum(ts), bal=inc-exp;
  $("#monthBalance").textContent=money(bal); $("#monthIncome").textContent=`↑ ${money(inc)}`; $("#monthExpense").textContent=`↓ ${money(exp)}`;
@@ -235,7 +237,7 @@ function dailyReport(){
 }
 function payRecurring(index){
  const r=state.recurring[index];if(!r)return;
- state.transactions.push({id:crypto.randomUUID(),type:r.type||"expense",title:r.title,amount:Number(r.amount),date:r.nextDate,category:r.category,subcategory:"",account:state.accounts[0],notes:"Generado desde planning"});
+ state.transactions.push({id:uid(),type:r.type||"expense",title:r.title,amount:Number(r.amount),date:r.nextDate,category:r.category,subcategory:"",account:state.accounts[0],notes:"Generado desde planning"});
  let d=parseDate(r.nextDate);
  if(r.frequency==="weekly")d.setDate(d.getDate()+7);else if(r.frequency==="yearly")d.setFullYear(d.getFullYear()+1);else d.setMonth(d.getMonth()+1);
  r.nextDate=iso(d);save();render();toast("Movimiento añadido y próximo pago actualizado");
