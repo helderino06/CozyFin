@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#f7f1e8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="CozyFin">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>CozyFin · Finanzas personales</title>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">MI DINERO</div>
+      <h1>CozyFin</h1>
+    </div>
+    <button class="icon-btn" id="quickAdd" aria-label="Añadir movimiento">＋</button>
+  </header>
+
+  <main id="main">
+    <section class="view active" id="view-home">
+      <div class="month-row">
+        <button class="round-btn" id="prevMonth">‹</button>
+        <button class="month-label" id="monthLabel"></button>
+        <button class="round-btn" id="nextMonth">›</button>
+      </div>
+
+      <div class="hero-card">
+        <div class="hero-label">Saldo del mes</div>
+        <div class="hero-value" id="monthBalance">0,00 €</div>
+        <div class="hero-meta">
+          <span id="monthIncome">↑ 0,00 €</span>
+          <span id="monthExpense">↓ 0,00 €</span>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card"><span>Presupuestado</span><strong id="budgetTotal">0,00 €</strong></div>
+        <div class="stat-card"><span>Gastado</span><strong id="spentTotal">0,00 €</strong></div>
+        <div class="stat-card"><span>Previsto</span><strong id="plannedTotal">0,00 €</strong></div>
+        <div class="stat-card"><span>Ahorro</span><strong id="savingRate">0%</strong></div>
+      </div>
+
+      <div class="section-head"><h2>Evolución</h2><span id="chartCaption">Este mes</span></div>
+      <div class="chart-card"><canvas id="trendChart"></canvas></div>
+
+      <div class="section-head"><h2>Por categorías</h2><span id="categoryTotal">0,00 €</span></div>
+      <div class="chart-card donut-wrap">
+        <canvas id="donutChart"></canvas>
+        <div id="donutCenter">0 €<small>gastos</small></div>
+      </div>
+      <div id="categoryLegend" class="legend"></div>
+
+      <div class="section-head"><h2>Movimientos recientes</h2><button class="text-btn" data-nav="transactions">Ver todos</button></div>
+      <div id="recentList" class="movement-list"></div>
+    </section>
+
+    <section class="view" id="view-transactions">
+      <div class="page-title"><h2>Movimientos</h2><button class="pill-btn" id="filterBtn">Filtrar</button></div>
+      <div class="segmented" id="typeSegment">
+        <button class="active" data-type="all">Todos</button><button data-type="income">Ingresos</button><button data-type="expense">Gastos</button>
+      </div>
+      <div id="transactionList" class="movement-list"></div>
+    </section>
+
+    <section class="view" id="view-budgets">
+      <div class="page-title"><h2>Presupuestos</h2><button class="pill-btn" id="addBudget">＋ Añadir</button></div>
+      <p class="muted">Define cuánto quieres gastar en cada categoría y controla el progreso.</p>
+      <div id="budgetList"></div>
+    </section>
+
+    <section class="view" id="view-planning">
+      <div class="page-title"><h2>Planning</h2><button class="pill-btn" id="addRecurring">＋ Programar</button></div>
+      <div class="planning-tabs"><button class="active" data-plan="upcoming">Próximos</button><button data-plan="recurring">Recurrentes</button></div>
+      <div id="planningList"></div>
+    </section>
+
+    <section class="view" id="view-more">
+      <div class="page-title"><h2>Más</h2></div>
+      <div class="settings-card">
+        <button class="settings-row" id="manageCats"><span>🏷️</span><div><b>Categorías</b><small>Gestiona categorías y subcategorías</small></div><span>›</span></button>
+        <button class="settings-row" id="manageAccounts"><span>💳</span><div><b>Cuentas</b><small>Banco, efectivo, tarjeta...</small></div><span>›</span></button>
+        <button class="settings-row" id="exportData"><span>📤</span><div><b>Exportar datos</b><small>Copia de seguridad en JSON</small></div><span>›</span></button>
+        <label class="settings-row"><span>📥</span><div><b>Importar datos</b><small>Restaurar una copia</small></div><span>›</span><input type="file" id="importData" accept=".json" hidden></label>
+      </div>
+      <div class="about-card">
+        <b>CozyFin</b>
+        <p>Finanzas personales privadas y locales. Tus datos se guardan en este dispositivo.</p>
+        <small>v1.0 · PWA optimizada para iPhone</small>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-nav="home"><span>⌂</span><small>Inicio</small></button>
+    <button class="tab" data-nav="transactions"><span>≡</span><small>Movimientos</small></button>
+    <button class="fab-tab" id="tabAdd">＋</button>
+    <button class="tab" data-nav="budgets"><span>◒</span><small>Presupuestos</small></button>
+    <button class="tab" data-nav="planning"><span>◷</span><small>Planning</small></button>
+  </nav>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modal"></div>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
