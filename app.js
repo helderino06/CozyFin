@@ -43,10 +43,10 @@ function catInfo(name){return state.categories.find(c=>c.name===name)||{name,ico
 function transactionsForMonth(k=currentMonth()){return state.transactions.filter(t=>monthKey(parseDate(t.date))===k)}
 function expenseSum(ts){return ts.filter(t=>t.type==="expense").reduce((a,t)=>a+Number(t.amount),0)}
 function incomeSum(ts){return ts.filter(t=>t.type==="income").reduce((a,t)=>a+Number(t.amount),0)}
+function uid(){return (globalThis.crypto&&typeof globalThis.crypto.randomUUID==='function')?globalThis.crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 
 
-function uid(){return (crypto&&crypto.randomUUID)?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)}
 function normalizeMerchant(s=''){
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^a-z0-9]+/g,' ').trim();
@@ -142,8 +142,8 @@ function openImport(){
   input.click();
 }
 
-function normalizeState(){ state.importRules ||= []; state.importedHashes ||= []; state.categories ||= []; state.transactions ||= []; state.budgets ||= []; state.recurring ||= []; state.goals ||= []; state.cards ||= []; state.accounts ||= ['Cuenta bancaria','Efectivo','Tarjeta']; state.accountBalances ||= {}; state.currency ||= 'EUR'; }
-function render(){ normalizeState();
+function normalizeState(){state.importRules ||= [];state.importedHashes ||= [];state.goals ||= [];state.cards ||= [];state.accountBalances ||= {};state.recurring ||= [];state.budgets ||= [];state.transactions ||= [];state.categories ||= defaultCats.map(x=>({name:x[0],icon:x[1],subs:x[2]}));state.accounts ||= ['Cuenta bancaria','Efectivo','Tarjeta'];state.dark ||= false;}
+function render(){normalizeState();
  $("#monthLabel").textContent=`${monthNames[cursor.getMonth()]} ${cursor.getFullYear()}`;
  const ts=transactionsForMonth(), inc=incomeSum(ts), exp=expenseSum(ts), bal=inc-exp;
  $("#monthBalance").textContent=money(bal); $("#monthIncome").textContent=`↑ ${money(inc)}`; $("#monthExpense").textContent=`↓ ${money(exp)}`;
@@ -174,7 +174,7 @@ function drawDonut(ts){
  const c=$("#donutChart"),ctx=c.getContext("2d"),dpr=devicePixelRatio||1,w=220;c.width=w*dpr;c.height=w*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,w);
  let map={};ts.filter(t=>t.type==="expense").forEach(t=>map[t.category]=(map[t.category]||0)+Number(t.amount));let arr=Object.entries(map).sort((a,b)=>b[1]-a[1]);let total=arr.reduce((a,x)=>a+x[1],0);
  $("#categoryTotal").textContent=money(total);$("#donutCenter").innerHTML=`${money(total)}<small>gastos</small>`;
- let start=-Math.PI/2;arr.forEach(([n,v],i)=>{let end=start+v/total*Math.PI*2||start;ctx.beginPath();ctx.moveTo(110,110);ctx.arc(110,110,82,start,end);ctx.closePath();ctx.fillStyle=palette[i%palette.length];ctx.fill();start=end});
+ let start=-Math.PI/2;if(!total){ctx.beginPath();ctx.arc(110,110,82,0,Math.PI*2);ctx.fillStyle="#eadfd2";ctx.fill();}arr.forEach(([n,v],i)=>{let end=start+v/total*Math.PI*2||start;ctx.beginPath();ctx.moveTo(110,110);ctx.arc(110,110,82,start,end);ctx.closePath();ctx.fillStyle=palette[i%palette.length];ctx.fill();start=end});
  ctx.beginPath();ctx.arc(110,110,53,0,Math.PI*2);ctx.fillStyle="#fffdf9";ctx.fill();
  $("#categoryLegend").innerHTML=arr.slice(0,8).map(([n,v],i)=>`<div class="legend-item"><i class="dot" style="background:${palette[i%palette.length]}"></i><b>${esc(n)}</b><span>${money(v)}</span></div>`).join("")||`<div class="empty" style="grid-column:1/-1">Aún no hay gastos este mes.</div>`;
 }
@@ -208,6 +208,46 @@ function renderAccounts(){
 function renderCards(){
  const box=$("#cardList"); if(!box)return;
  box.innerHTML=state.cards.length?state.cards.map((c,i)=>`<div class="account-card"><div class="account-icon">💳</div><div><b>${esc(c.name)}</b><small>Cierre día ${c.closeDay} · pago día ${c.payDay}</small></div><button class="text-btn" data-card="${i}">Editar</button></div>`).join(""):`<div class="empty">Añade tus tarjetas para recordar cierre y pago.</div>`;
+}
+
+function openModal(html){$("#modal").innerHTML=html;$("#modalBackdrop").classList.add("open")}
+function closeModal(){$("#modalBackdrop").classList.remove("open")}
+function addMovement(existing=null){
+ const t=existing||{type:"expense",amount:"",title:"",date:iso(new Date()),category:state.categories[0].name,subcategory:"",account:state.accounts[0],notes:""};
+ openModal(`<div class="modal-top"><h3>${existing?"Editar movimiento":"Nuevo movimiento"}</h3><button class="close" id="closeModal">×</button></div>
+ <div class="form-grid">
+ <div class="choice-row"><button class="choice ${t.type==="expense"?"active":""}" data-t="expense">Gasto</button><button class="choice ${t.type==="income"?"active":""}" data-t="income">Ingreso</button></div>
+ <div class="field"><label>Concepto</label><input id="fTitle" value="${esc(t.title)}" placeholder="Ej. Nómina, supermercado..."></div>
+ <div class="form-row"><div class="field"><label>Importe (€)</label><input id="fAmount" type="number" step="0.01" value="${t.amount}"></div><div class="field"><label>Fecha</label><input id="fDate" type="date" value="${t.date}"></div></div>
+ <div class="form-row"><div class="field"><label>Categoría</label><select id="fCat">${state.categories.map(c=>`<option ${c.name===t.category?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div><div class="field"><label>Subcategoría</label><select id="fSub"></select></div></div>
+ <div class="field"><label>Cuenta</label><select id="fAccount">${state.accounts.map(a=>`<option ${a===t.account?"selected":""}>${esc(a)}</option>`).join("")}</select></div>
+ <div class="field"><label>Notas</label><textarea id="fNotes">${esc(t.notes||"")}</textarea></div>
+ <button class="primary" id="saveMovement">Guardar movimiento</button>${existing?`<button class="danger" id="deleteMovement">Eliminar movimiento</button>`:""}
+ </div>`);
+ let typ=t.type; $$(".choice").forEach(b=>b.onclick=()=>{$$(".choice").forEach(x=>x.classList.remove("active"));b.classList.add("active");typ=b.dataset.t});
+ function subs(){let c=state.categories.find(x=>x.name===$("#fCat").value);$("#fSub").innerHTML=`<option value="">Sin subcategoría</option>`+(c?.subs||[]).map(s=>`<option ${s===t.subcategory?"selected":""}>${esc(s)}</option>`).join("")}
+ subs();$("#fCat").onchange=subs;$("#closeModal").onclick=closeModal;
+ $("#saveMovement").onclick=()=>{let amount=Number($("#fAmount").value);if(!$("#fTitle").value.trim()||!amount||amount<0){toast("Completa concepto e importe");return}
+ const obj={id:t.id||uid(),type:typ,title:$("#fTitle").value.trim(),amount,date:$("#fDate").value,category:$("#fCat").value,subcategory:$("#fSub").value,account:$("#fAccount").value,notes:$("#fNotes").value};
+ if(existing)state.transactions=state.transactions.map(x=>x.id===existing.id?obj:x);else state.transactions.push(obj);save();closeModal();render();toast("Movimiento guardado")};
+ if(existing)$("#deleteMovement").onclick=()=>{state.transactions=state.transactions.filter(x=>x.id!==existing.id);save();closeModal();render();toast("Movimiento eliminado")};
+}
+function budgetModal(existing=null,index=-1){
+ const b=existing||{category:state.categories[0].name,limit:""};
+ openModal(`<div class="modal-top"><h3>${existing?"Editar presupuesto":"Nuevo presupuesto"}</h3><button class="close">×</button></div><div class="form-grid">
+ <div class="field"><label>Categoría</label><select id="bCat">${state.categories.map(c=>`<option ${c.name===b.category?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div>
+ <div class="field"><label>Límite mensual (€)</label><input id="bLimit" type="number" step="0.01" value="${b.limit}"></div>
+ <button class="primary" id="saveBudget">Guardar límite</button>${existing?`<button class="danger" id="deleteBudget">Eliminar</button>`:""}</div>`);
+ $(".close").onclick=closeModal;$("#saveBudget").onclick=()=>{let limit=Number($("#bLimit").value);if(!limit){toast("Introduce un límite");return}let obj={category:$("#bCat").value,limit};if(index>=0)state.budgets[index]=obj;else state.budgets.push(obj);save();closeModal();render();toast("Presupuesto guardado")};if(existing)$("#deleteBudget").onclick=()=>{state.budgets.splice(index,1);save();closeModal();render()};
+}
+function recurringModal(existing=null,index=-1){
+ const r=existing||{title:"",amount:"",category:state.categories[0].name,nextDate:iso(new Date()),frequency:"monthly",active:true};
+ openModal(`<div class="modal-top"><h3>${existing?"Editar planificación":"Programar movimiento"}</h3><button class="close">×</button></div><div class="form-grid">
+ <div class="field"><label>Concepto</label><input id="rTitle" value="${esc(r.title)}" placeholder="Ej. Nómina"></div>
+ <div class="form-row"><div class="field"><label>Importe (€)</label><input id="rAmount" type="number" step="0.01" value="${r.amount}"></div><div class="field"><label>Próxima fecha</label><input id="rDate" type="date" value="${r.nextDate}"></div></div>
+ <div class="form-row"><div class="field"><label>Categoría</label><select id="rCat">${state.categories.map(c=>`<option ${c.name===r.category?"selected":""}>${esc(c.name)}</option>`).join("")}</select></div><div class="field"><label>Frecuencia</label><select id="rFreq"><option value="monthly" ${r.frequency==="monthly"?"selected":""}>Mensual</option><option value="weekly" ${r.frequency==="weekly"?"selected":""}>Semanal</option><option value="yearly" ${r.frequency==="yearly"?"selected":""}>Anual</option></select></div></div>
+ <button class="primary" id="saveRecurring">Guardar</button>${existing?`<button class="danger" id="deleteRecurring">Eliminar</button>`:""}</div>`);
+ $(".close").onclick=closeModal;$("#saveRecurring").onclick=()=>{let obj={id:r.id||uid(),title:$("#rTitle").value.trim(),amount:Number($("#rAmount").value),category:$("#rCat").value,nextDate:$("#rDate").value,frequency:$("#rFreq").value,active:true};if(!obj.title||!obj.amount){toast("Completa los datos");return}if(index>=0)state.recurring[index]=obj;else state.recurring.push(obj);save();closeModal();render();toast("Planificación guardada")};if(existing)$("#deleteRecurring").onclick=()=>{state.recurring.splice(index,1);save();closeModal();render()};
 }
 
 function goalModal(existing=null,index=-1){
