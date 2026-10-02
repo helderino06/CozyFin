@@ -120,7 +120,7 @@
 <div id="v6Overlay" class="v6-overlay" aria-hidden="true">
   <div class="v6-sheet">
     <button class="v6-close" onclick="v6Close()">×</button>
-    <div id="v6Content"></div>
+    <div id="v6Content"></div><div id="v7FilterMount"></div>
   </div>
 </div>
 <script>
@@ -128,6 +128,7 @@ function v6Open(){
   const o=document.getElementById("v6Overlay");
   document.getElementById("v6Content").innerHTML=
     v6RenderAnalysis()+v6CalendarHTML()+v6AddToolButtons();
+  document.getElementById("v7FilterMount").innerHTML=v7FilterPanel();
   o.classList.add("show"); o.setAttribute("aria-hidden","false");
 }
 function v6Close(){
