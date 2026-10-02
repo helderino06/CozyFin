@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <meta name="theme-color" content="#f7f1e8">
+  <meta name="theme-color" content="#171816">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="CozyFin">
@@ -46,6 +46,8 @@
         <div class="stat-card"><span>Ahorro</span><strong id="savingRate">0%</strong></div>
       </div>
 
+      <div id="v8CalendarMount"></div>
+
       <div class="section-head"><h2>Evolución</h2><span id="chartCaption">Este mes</span></div>
       <div class="chart-card"><canvas id="trendChart"></canvas></div>
 
@@ -83,6 +85,7 @@
     <section class="view" id="view-more">
       <div class="page-title"><h2>Más</h2></div>
       <div class="settings-card">
+        <button class="settings-row" id="darkToggle"><span>🌙</span><div><b>Cozy Dark</b><small>Alterna entre modo oscuro y claro</small></div><span>›</span></button>
         <button class="settings-row" id="manageCats"><span>🏷️</span><div><b>Categorías</b><small>Gestiona categorías y subcategorías</small></div><span>›</span></button>
         <button class="settings-row" id="manageAccounts"><span>💳</span><div><b>Cuentas</b><small>Banco, efectivo, tarjeta...</small></div><span>›</span></button>
         <button class="settings-row" id="exportData"><span>📤</span><div><b>Exportar datos</b><small>Copia de seguridad en JSON</small></div><span>›</span></button>
@@ -97,7 +100,7 @@
       <div class="about-card">
         <b>CozyFin</b>
         <p>Finanzas personales privadas y locales. Tus datos se guardan en este dispositivo.</p>
-        <small>v5 · PWA optimizada para iPhone</small>
+        <small>v8 · PWA optimizada para iPhone</small>
       </div>
     </section>
   </main>
@@ -117,25 +120,5 @@
 <div id="toast"></div>
 <script src="app.js"></script>
 
-<div id="v6Overlay" class="v6-overlay" aria-hidden="true">
-  <div class="v6-sheet">
-    <button class="v6-close" onclick="v6Close()">×</button>
-    <div id="v6Content"></div><div id="v7FilterMount"></div>
-  </div>
-</div>
-<script>
-function v6Open(){
-  const o=document.getElementById("v6Overlay");
-  document.getElementById("v6Content").innerHTML=
-    v6RenderAnalysis()+v6CalendarHTML()+v6AddToolButtons();
-  document.getElementById("v7FilterMount").innerHTML=v7FilterPanel();
-  o.classList.add("show"); o.setAttribute("aria-hidden","false");
-}
-function v6Close(){
-  const o=document.getElementById("v6Overlay");
-  o.classList.remove("show"); o.setAttribute("aria-hidden","true");
-}
-</script>
-<button class="v6-fab" onclick="v6Open()">📊</button>
 </body>
 </html>

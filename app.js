@@ -56,7 +56,7 @@ function render(){
  $("#budgetTotal").textContent=money(budgets);$("#spentTotal").textContent=money(exp);
  const planned=state.recurring.filter(r=>r.active!==false).reduce((a,r)=>a+Number(r.amount),0);
  $("#plannedTotal").textContent=money(planned);$("#savingRate").textContent=inc?`${Math.round((inc-exp)/inc*100)}%`:"0%";
- drawTrend(ts); drawDonut(ts); renderRecent(); renderTransactions(); renderBudgets(); renderPlanning();
+ drawTrend(ts); drawDonut(ts); renderRecent(); renderTransactions(); renderBudgets(); renderPlanning(); v8RefreshCalendar();
 }
 function drawTrend(ts){
  const c=$("#trendChart"),ctx=c.getContext("2d"),dpr=devicePixelRatio||1,w=c.clientWidth,h=210;c.width=w*dpr;c.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
@@ -82,8 +82,10 @@ function movementHTML(t){
 }
 function renderRecent(){let a=[...transactionsForMonth()].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);$("#recentList").innerHTML=a.length?a.map(movementHTML).join(""):`<div class="empty">No hay movimientos. Pulsa ＋ para añadir el primero.</div>`}
 function renderTransactions(){
- let a=[...state.transactions].sort((a,b)=>b.date.localeCompare(a.date));if(selectedType!=="all")a=a.filter(t=>t.type===selectedType);
- $("#transactionList").innerHTML=a.length?a.map(movementHTML).join(""):`<div class="empty">No hay movimientos.</div>`;
+ const list=$("#transactionList"); const has=Object.values(v8Filters).some(v=>v!==""&&v!=="all");
+ if(has){list.innerHTML=v8RenderFilteredList();return}
+ let a=[...state.transactions].sort((a,b)=>b.date.localeCompare(a.date)); if(selectedType!=="all")a=a.filter(t=>t.type===selectedType);
+ list.innerHTML=a.length?a.map(movementHTML).join(""):`<div class="empty">No hay movimientos.</div>`;
 }
 function renderBudgets(){
  const ts=transactionsForMonth();
@@ -155,6 +157,17 @@ function navigate(name){$$(".view").forEach(v=>v.classList.remove("active"));$(`
 function exportData(){let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`cozyfin-${iso(new Date())}.json`;a.click();URL.revokeObjectURL(a.href);toast("Copia exportada")}
 $("#importData").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!x.transactions||!x.categories)throw 0;state=x;save();render();toast("Datos restaurados")}catch{toast("Archivo no válido")}};r.readAsText(f)};
 
+
+// v8 — filtro funcional, calendario mensual y Cozy Dark
+const v8Filters={type:"all",category:"all",account:"all",from:"",to:"",min:"",max:"",q:""};
+function v8Filtered(){const q=v8Filters.q.trim().toLowerCase();return [...state.transactions].filter(t=>{if(v8Filters.type!=="all"&&t.type!==v8Filters.type)return false;if(v8Filters.category!=="all"&&t.category!==v8Filters.category)return false;if(v8Filters.account!=="all"&&t.account!==v8Filters.account)return false;if(v8Filters.from&&t.date<v8Filters.from)return false;if(v8Filters.to&&t.date>v8Filters.to)return false;if(v8Filters.min!==""&&Number(t.amount)<Number(v8Filters.min))return false;if(v8Filters.max!==""&&Number(t.amount)>Number(v8Filters.max))return false;if(q&&! [t.title,t.category,t.subcategory,t.account,t.notes].join(" ").toLowerCase().includes(q))return false;return true}).sort((a,b)=>b.date.localeCompare(a.date))}
+function v8FilterModal(){openModal(`<div class="modal-top"><h3>Filtrar movimientos</h3><button class="close">×</button></div><div class="form-grid v8-filter-form"><div class="field"><label>Buscar</label><input id="v8q" placeholder="Comercio, concepto o nota" value="${esc(v8Filters.q)}"></div><div class="form-row"><div class="field"><label>Tipo</label><select id="v8type"><option value="all">Todos</option><option value="expense">Gastos</option><option value="income">Ingresos</option></select></div><div class="field"><label>Categoría</label><select id="v8cat"><option value="all">Todas</option>${state.categories.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join("")}</select></div></div><div class="field"><label>Cuenta</label><select id="v8acc"><option value="all">Todas</option>${state.accounts.map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join("")}</select></div><div class="form-row"><div class="field"><label>Desde</label><input id="v8from" type="date" value="${v8Filters.from}"></div><div class="field"><label>Hasta</label><input id="v8to" type="date" value="${v8Filters.to}"></div></div><div class="form-row"><div class="field"><label>Importe mínimo</label><input id="v8min" type="number" step="0.01" value="${v8Filters.min}"></div><div class="field"><label>Importe máximo</label><input id="v8max" type="number" step="0.01" value="${v8Filters.max}"></div></div><button class="primary" id="v8Apply">Aplicar filtros</button><button class="v8-clear" id="v8Clear">Limpiar filtros</button></div>`);$("#v8type").value=v8Filters.type;$("#v8cat").value=v8Filters.category;$("#v8acc").value=v8Filters.account;$(".close").onclick=closeModal;$("#v8Apply").onclick=()=>{Object.assign(v8Filters,{q:$("#v8q").value,type:$("#v8type").value,category:$("#v8cat").value,account:$("#v8acc").value,from:$("#v8from").value,to:$("#v8to").value,min:$("#v8min").value,max:$("#v8max").value});closeModal();renderTransactions();toast(`${v8Filtered().length} movimientos encontrados`)};$("#v8Clear").onclick=()=>{Object.assign(v8Filters,{type:"all",category:"all",account:"all",from:"",to:"",min:"",max:"",q:""});closeModal();renderTransactions();toast("Filtros eliminados")}}
+function v8RenderFilteredList(){const a=v8Filtered(),inc=incomeSum(a),exp=expenseSum(a);return `<div class="v8-filter-summary"><div><b>${a.length}</b><small>movimientos</small></div><div><b class="income">+${money(inc)}</b><small>ingresos</small></div><div><b class="expense">−${money(exp)}</b><small>gastos</small></div></div>`+(a.length?a.map(movementHTML).join(""):`<div class="empty">No hay movimientos con estos filtros.</div>`)}
+function v8CalendarHTML(){const y=cursor.getFullYear(),m=cursor.getMonth(),first=new Date(y,m,1),days=new Date(y,m+1,0).getDate(),start=(first.getDay()+6)%7;let cells="";for(let i=0;i<start;i++)cells+='<div class="v8-day empty"></div>';for(let d=1;d<=days;d++){const date=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,ts=state.transactions.filter(t=>t.date===date),inc=incomeSum(ts),exp=expenseSum(ts),net=inc-exp;cells+=`<button class="v8-day ${date===today()?"today":""}" data-calendar-date="${date}"><span>${d}</span>${inc?`<i class="inc">+${money(inc)}</i>`:""}${exp?`<i class="exp">−${money(exp)}</i>`:""}${!inc&&!exp?'<i class="none">—</i>':`<i class="net ${net>=0?"positive":"negative"}">${net>=0?"+":"−"}${money(Math.abs(net))}</i>`}</button>`}return `<div class="v8-calendar-card"><div class="v8-cal-head"><div><b>Calendario</b><small>Ingresos y gastos de cada día</small></div><div class="v8-cal-total">${money(incomeSum(transactionsForMonth())-expenseSum(transactionsForMonth()))}</div></div><div class="v8-weekdays"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div><div class="v8-calendar-grid">${cells}</div><div class="v8-cal-legend"><span><i class="incdot"></i>Ingreso</span><span><i class="expdot"></i>Gasto</span><span><i class="netdot"></i>Balance diario</span></div></div>`}
+function v8RefreshCalendar(){const e=$("#v8CalendarMount");if(e)e.innerHTML=v8CalendarHTML()}
+function v8ToggleDark(force){const dark=force===undefined?!document.body.classList.contains("dark"):force;document.body.classList.toggle("dark",dark);localStorage.setItem("cozyfin-dark",dark?"1":"0");const b=$("#darkToggle");if(b)b.textContent=dark?"☀️ Modo claro":"🌙 Cozy Dark"}
+function v8Init(){v8ToggleDark(localStorage.getItem("cozyfin-dark")!=="0");const f=$("#filterBtn");if(f)f.onclick=v8FilterModal;const d=$("#darkToggle");if(d)d.onclick=()=>v8ToggleDark();const cal=$("#v8CalendarMount");if(cal)cal.addEventListener("click",e=>{const b=e.target.closest("[data-calendar-date]");if(!b)return;const date=b.dataset.calendarDate,ts=state.transactions.filter(t=>t.date===date);if(!ts.length){toast("No hay movimientos este día");return}openModal(`<div class="modal-top"><h3>${formatDate(date)}</h3><button class="close">×</button></div><div class="movement-list">${ts.map(movementHTML).join("")}</div>`);$(".close").onclick=closeModal})}
+
 $$("[data-nav]").forEach(b=>b.onclick=()=>navigate(b.dataset.nav));
 $("#quickAdd").onclick=$("#tabAdd").onclick=()=>addMovement();
 $("#prevMonth").onclick=()=>{cursor.setMonth(cursor.getMonth()-1);render()};
@@ -169,6 +182,7 @@ document.addEventListener("click",e=>{let m=e.target.closest(".movement");if(m){
 });
 $("#modalBackdrop").onclick=e=>{if(e.target===$("#modalBackdrop"))closeModal()};
 render();
+v8Init();
 if($("backupBtn"))$("backupBtn").onclick=exportFullBackup;
 if($("csvBtn"))$("csvBtn").onclick=importCSV;
 
